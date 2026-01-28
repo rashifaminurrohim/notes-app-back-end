@@ -35,12 +35,12 @@ class NotesService {
 
   async getNoteById(id) {
     const query = {
-      text: 'SELECT * FROM notes WHERE id == $1',
+      text: 'SELECT * FROM notes WHERE id = $1',
       values: [id],
     };
     const result = await this._pool.query(query);
 
-    if (!result.rows[0].id) {
+    if (!result.rows.length) {
       throw new NotFoundError('Catatan tidak ditemukan');
     }
     
@@ -50,7 +50,7 @@ class NotesService {
   async editNoteById(id, {title, body, tags}) {
     const updatedAt = new Date().toISOString();
     const query = {
-      text: 'UPDATE notes SET title = $1, body = $2, tags = $3, update_at = $4 WHERE id = $5 RETURNING id',
+      text: 'UPDATE notes SET title = $1, body = $2, tags = $3, updated_at = $4 WHERE id = $5 RETURNING id',
       values: [title, body, tags, updatedAt, id],
     };
     
@@ -67,8 +67,8 @@ class NotesService {
     };
     
     const result = await this._pool.query(query);
-    if (!result.rows[0].id) {
-      throw new NotFoundError('Catatan gagal dihapus. Id tidak ditemukan');
+    if (!result.rows.length) {
+      throw new NotFoundError('Catatan tidak ditemukan');
     }
   }
 }
