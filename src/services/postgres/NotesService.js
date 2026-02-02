@@ -6,8 +6,9 @@ const NotFoundError = require('../../exceptions/NotFoundError');
 const AuthorizationError = require('../../exceptions/AuthorizationError');
 
 class NotesService {
-  constructor() {
+  constructor(collaborationsService) {
     this._pool = new Pool();
+    this._collaborationsService = collaborationsService;
   }
 
   async addNote({ title, body, tags, owner }) {
@@ -21,7 +22,7 @@ class NotesService {
     };
 
     const result = await this._pool.query(query);
-    
+
     if (!result.rows[0].id) {
       throw new InvariantError('Catatan gagal ditambahkan');
     }
@@ -31,7 +32,9 @@ class NotesService {
 
   async getNotes(owner) {
     const query = {
-      text: 'SELECT FROM notes WHERE owner = $1',
+      text: `SELECT notes.* FROM notes LEFT JOIN collaborations ON collaborations.note_id = notes.id
+      WHERE notes.owner = $1 OR collaborations.user_id = $1 
+      GROUP BY notes.id`,
       values: [owner],
     };
     const result = await this._pool.query(query);
@@ -40,7 +43,10 @@ class NotesService {
 
   async getNoteById(id) {
     const query = {
-      text: 'SELECT * FROM notes WHERE id = $1',
+      text: `SELECT notes.*, users.username 
+      FROM notes 
+      LEFT JOIN users ON users.id = notes.owner
+      WHERE notes.id = $1`,
       values: [id],
     };
     const result = await this._pool.query(query);
@@ -48,29 +54,29 @@ class NotesService {
     if (!result.rows.length) {
       throw new NotFoundError('Catatan tidak ditemukan');
     }
-    
+
     return result.rows.map(mapDBToModel)[0];
   }
-  
-  async editNoteById(id, {title, body, tags}) {
+
+  async editNoteById(id, { title, body, tags }) {
     const updatedAt = new Date().toISOString();
     const query = {
       text: 'UPDATE notes SET title = $1, body = $2, tags = $3, updated_at = $4 WHERE id = $5 RETURNING id',
       values: [title, body, tags, updatedAt, id],
     };
-    
+
     const result = await this._pool.query(query);
     if (!result.rows.length) {
       throw new NotFoundError('Gagal memperbarui catatan. Id tidak ditemukan');
     }
   }
-  
+
   async deleteNoteById(id) {
     const query = {
       text: 'DELETE FROM notes WHERE id = $1 RETURNING id',
       values: [id],
     };
-    
+
     const result = await this._pool.query(query);
     if (!result.rows.length) {
       throw new NotFoundError('Catatan tidak ditemukan');
@@ -85,7 +91,7 @@ class NotesService {
 
     const result = await this._pool.query(query);
 
-    if(!result.rows.length) {
+    if (!result.rows.length) {
       throw new NotFoundError('Catatan tidak ditemukan');
     }
 
@@ -93,6 +99,21 @@ class NotesService {
 
     if (note.owner !== owner) {
       throw new AuthorizationError('Anda tidak berhak mengakses resource ini');
+    }
+  }
+
+  async verifyNoteAccess(noteId, userId) {
+    try {
+      await this.verifyNoteOwner(noteId, userId);
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        throw error;
+      }
+      try {
+        await this._collaborationsService.verifyNoteCollaborator(noteId, userId);
+      } catch {
+        throw error;
+      }
     }
   }
 }
